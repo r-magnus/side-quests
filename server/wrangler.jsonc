@@ -12,6 +12,7 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Lobby"] }],
   // Human-written quests from finished games (server/src/catalog.ts). Local `wrangler dev` simulates this
   // with no setup; deployed, it's a real D1 database (`wrangler d1 create side-quests-catalog`).
+  "ai": { "binding": "AI" },
   "d1_databases": [{ "binding": "CATALOG", "database_name": "side-quests-catalog", "database_id": "60ceb201-0de6-49ef-b3b4-59a9f1ad2b42" }],
   // The web app (npm run web:build) is served from the same address as the game,
   // so a join link works in any phone browser. /api/* goes to the game code;
@@ -23,5 +24,4 @@
   },
   // Dev shortcuts (bots via DEV menu, skip to end, seeding). Set to "0" in production.
   "vars": { "DEV_TOOLS": "1" }
-  // OPENAI_API_KEY is a secret: `wrangler secret put OPENAI_API_KEY` when deployed, server/.env locally.
 }

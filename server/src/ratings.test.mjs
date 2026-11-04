@@ -23,16 +23,26 @@ test('a far-off place adds effort', () => {
 
 test('without an API key every quest still gets a rating', async () => {
   const qs = [quest('Get a high five from someone wearing a hat'), quest('Find a sign with a typo')];
-  const ratings = await rateQuests({ model: 'gpt-5.4-mini' }, qs);
+  const ratings = await rateQuests(undefined, qs);
   assert.deepEqual(ratings.map((r) => r.questId).sort(), qs.map((q) => q.id).sort());
   assert.ok(ratings.every((r) => r.difficulty.by === 'estimate'));
 });
 
-test('an API failure falls back to the estimate', async (t) => {
-  t.mock.method(globalThis, 'fetch', async () => new Response('{"error":{"message":"nope"}}', { status: 500 }));
+test('an AI failure falls back to the estimate', async (t) => {
   t.mock.method(console, 'error', () => {});
+  const ai = { run: async () => { throw new Error('nope'); } };
   const qs = [quest('Order something using only a fake accent')];
-  const ratings = await rateQuests({ apiKey: 'sk-test', model: 'gpt-5.4-mini' }, qs);
+  const ratings = await rateQuests(ai, qs);
   assert.equal(ratings.length, 1);
   assert.equal(ratings[0].difficulty.by, 'estimate');
+});
+
+test('AI ratings are used, clamped, and missing ones estimated', async () => {
+  const qs = [quest('Find a sign with a typo'), quest('Serenade a stranger')];
+  const ai = { run: async () => ({ response: { ratings: [{ id: 'q1', time: 9, nerve: 1, effort: 2, why: 'Quick look around' }] } }) };
+  const ratings = await rateQuests(ai, qs);
+  const first = ratings.find((r) => r.questId === qs[0].id).difficulty;
+  assert.equal(first.by, 'ai');
+  assert.equal(first.time, 5);
+  assert.equal(ratings.find((r) => r.questId === qs[1].id).difficulty.by, 'estimate');
 });

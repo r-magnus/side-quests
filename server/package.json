@@ -10,8 +10,7 @@
     "test": "node --test src/geocode.test.mjs src/ratings.test.mjs src/tiles.test.mjs"
   },
   "dependencies": {
-    "@side-quests/game": "*",
-    "openai": "^7.43.0"
+    "@side-quests/game": "*"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261024.1",
