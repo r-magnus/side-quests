@@ -26,15 +26,13 @@ import {
 } from "@side-quests/game";
 import { Bots } from "./bots";
 import { saveToCatalog } from "./catalog";
-import { DEFAULT_MODEL, writeQuests } from "./quests";
+import { writeQuests } from "./quests";
 import { rateQuests } from "./ratings";
 
 export interface Env {
   LOBBY: DurableObjectNamespace<Lobby>;
-  /** Enables AI-written quests (server/.env locally; `wrangler secret put OPENAI_API_KEY` deployed). */
-  OPENAI_API_KEY?: string;
-  /** Optional: which OpenAI model writes quests (default in quests.ts). */
-  OPENAI_MODEL?: string;
+  /** Workers AI: writes and rates quests. Absent (e.g. in tests), the offline deck and estimate fill in. */
+  AI?: Ai;
   DEV_TOOLS?: string;
   /** Overrides for testing: how long a quiet lobby lives, and how long before an away host is replaced. */
   LOBBY_TTL_SECONDS?: string;
@@ -91,7 +89,7 @@ export class Lobby extends DurableObject<Env> {
       if (this.state) return new Response("taken", { status: 409 });
       const { code, host } = (await request.json()) as { code: string; host: Player };
       this.state = newGame(code, host, {
-        aiMode: this.env.OPENAI_API_KEY ? "ai" : "offline",
+        aiMode: this.env.AI ? "ai" : "offline",
         devTools: this.env.DEV_TOOLS === "1",
       });
       await this.persist();
@@ -400,7 +398,7 @@ export class Lobby extends DurableObject<Env> {
     const human = s.quests.filter((q) => q.source === "human").map((q) => q.text);
     const all = s.quests.map((q) => q.text);
     this.ctx.waitUntil(
-      writeQuests({ apiKey: this.env.OPENAI_API_KEY, model: this.env.OPENAI_MODEL }, count, human, all).then((texts) => {
+      writeQuests(this.env.AI, count, human, all).then((texts) => {
         const quests: Quest[] = texts.map((text) => ({ id: crypto.randomUUID(), text, authorId: null, source: "ai", included: true }));
         const before = this.state?.quests.length ?? 0;
         // Back off first: otherwise an empty result would trigger the next top-up immediately, forever.
@@ -429,7 +427,7 @@ export class Lobby extends DurableObject<Env> {
     if (!todo.length) return;
     for (const q of todo) this.rating.add(q.id);
     this.ctx.waitUntil(
-      rateQuests({ apiKey: this.env.OPENAI_API_KEY, model: this.env.OPENAI_MODEL || DEFAULT_MODEL }, todo)
+      rateQuests(this.env.AI, todo)
         .then((ratings) => this.dispatch({ type: "rateQuests", ratings }, "server"))
         .finally(() => {
           for (const q of todo) this.rating.delete(q.id);

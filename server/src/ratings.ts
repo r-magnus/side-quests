@@ -1,5 +1,5 @@
-import OpenAI from "openai";
 import type { Quest, QuestDifficulty } from "@side-quests/game";
+import { askJSON } from "./ai.ts";
 
 const INSTRUCTIONS = `You rate side quests for an in-person party game. Friends complete each quest \
 somewhere in public within a timed round and prove it with one photo. Rate how hard each \
@@ -43,28 +43,28 @@ const SCHEMA = {
 type Rated = { questId: string; difficulty: QuestDifficulty };
 
 /**
- * Rates quests' difficulty. Uses OpenAI when a key is configured; quests it
+ * Rates quests' difficulty. Uses Workers AI when the binding is present; quests it
  * misses (or every quest, on any failure) get the offline estimate instead.
  * The engine derives points from the factors and clamps everything.
  */
-export async function rateQuests(ai: { apiKey?: string; model: string }, quests: Quest[]): Promise<Rated[]> {
+export async function rateQuests(ai: Ai | undefined, quests: Quest[]): Promise<Rated[]> {
   if (!quests.length) return [];
   let fromAI: Rated[] = [];
-  if (ai.apiKey) {
+  if (ai) {
     try {
-      fromAI = await askOpenAI(new OpenAI({ apiKey: ai.apiKey }), ai.model, quests);
+      fromAI = await askAI(ai, quests);
     } catch (error) {
-      if (error instanceof OpenAI.AuthenticationError) console.error("OpenAI ratings: invalid API key");
-      else if (error instanceof OpenAI.RateLimitError) console.error("OpenAI ratings: rate limited or out of credit");
-      else if (error instanceof OpenAI.APIError) console.error(`OpenAI ratings: API error ${error.status}: ${error.message}`);
-      else console.error("Quest rating failed:", error);
+      console.error("Quest rating failed:", error);
     }
   }
   const rated = new Set(fromAI.map((r) => r.questId));
   return [...fromAI, ...quests.filter((q) => !rated.has(q.id)).map((q) => ({ questId: q.id, difficulty: estimate(q) }))];
 }
 
-async function askOpenAI(client: OpenAI, model: string, quests: Quest[]): Promise<Rated[]> {
+/** 1–5, or null when the model returned something unusable (that quest gets the estimate). */
+const factor = (n: unknown) => (typeof n === "number" && Number.isFinite(n) ? Math.min(5, Math.max(1, Math.round(n))) : null);
+
+async function askAI(ai: Ai, quests: Quest[]): Promise<Rated[]> {
   // Short ids keep the prompt small and the model from mangling UUIDs.
   const byKey = new Map(quests.map((q, i) => [`q${i + 1}`, q]));
   const list = [...byKey].map(([key, q]) => ({
@@ -72,21 +72,16 @@ async function askOpenAI(client: OpenAI, model: string, quests: Quest[]): Promis
     quest: q.text,
     ...(q.place ? { place: `must be done at ${q.place.name} (within ${q.place.radius} m)` } : {}),
   }));
+  const input = `Rate each of these quests. Return one rating per id.\n\n${JSON.stringify(list, null, 1)}`;
 
-  const response = await client.responses.create({
-    model,
-    instructions: INSTRUCTIONS,
-    input: `Rate each of these quests. Return one rating per id.\n\n${JSON.stringify(list, null, 1)}`,
-    ...(/^(gpt-5|gpt-6|o\d)/.test(model) ? { reasoning: { effort: "low" as const } } : {}),
-    text: { format: { type: "json_schema", name: "quest_ratings", strict: true, schema: SCHEMA } },
-    max_output_tokens: 4000,
-    store: false,
-  });
-
-  const { ratings } = JSON.parse(response.output_text) as { ratings: { id: string; time: number; nerve: number; effort: number; why: string }[] };
+  const { ratings } = await askJSON<{ ratings: unknown }>(ai, INSTRUCTIONS, input, SCHEMA);
+  if (!Array.isArray(ratings)) throw new Error("AI returned no ratings");
   return ratings.flatMap((r) => {
-    const q = byKey.get(r.id);
-    return q ? [{ questId: q.id, difficulty: { time: r.time, nerve: r.nerve, effort: r.effort, points: 0, why: r.why, by: "ai" as const } }] : [];
+    const q = byKey.get(r?.id);
+    const [time, nerve, effort] = [factor(r?.time), factor(r?.nerve), factor(r?.effort)];
+    if (!q || time === null || nerve === null || effort === null) return [];
+    const why = typeof r.why === "string" ? r.why.slice(0, 120) : "";
+    return [{ questId: q.id, difficulty: { time, nerve, effort, points: 0, why, by: "ai" as const } }];
   });
 }
 

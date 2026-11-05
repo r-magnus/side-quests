@@ -90,7 +90,7 @@ async function route(request: Request, env: Env, ctx?: ExecutionContext): Promis
 
   // `sha` is the commit this deployment was built from (set by CI) — the simplest way to
   // confirm a push actually made it to production, and which one is currently live.
-  if (parts[1] === "health") return Response.json({ ok: true, ai: env.OPENAI_API_KEY ? "ai" : "offline", sha: env.GIT_SHA ?? "local" });
+  if (parts[1] === "health") return Response.json({ ok: true, ai: env.AI ? "ai" : "offline", sha: env.GIT_SHA ?? "local" });
 
   // GET /api/catalog/quests?limit=20&verified=1&random=1 -> CatalogEntry[]
   // Human-written quests pulled from finished games (not AI ones, and not just written

@@ -14,7 +14,7 @@ cd side-quests
 npm install
 ```
 
-Optional, for AI-written quests and AI difficulty ratings: copy `server/.env.example` to `server/.env` and put an OpenAI API key in it. Without a key the game still works; an offline quest deck and a built-in difficulty estimate fill in.
+AI-written quests and AI difficulty ratings use Cloudflare Workers AI through the server's `AI` binding. There's no key to set up; `wrangler dev` uses your Cloudflare login. Without it the game still works, because an offline quest deck and a built-in difficulty estimate fill in.
 
 ### Play a game: `npm run party`
 
@@ -64,7 +64,7 @@ More ways to run on phones (Expo Go for development, installed iOS and Android b
 ```
 packages/game/   Shared TypeScript: types, game rules, wire protocol, places (+ tests)
 server/          Cloudflare Worker — one Durable Object per lobby, photos stored with each lobby,
-                 AI quest writer (OpenAI), walking directions, bots, dev shortcuts
+                 AI quest writer (Workers AI), walking directions, bots, dev shortcuts
 app/             Expo (React Native + expo-router) app for iOS, Android and web
 legacy-swiftui/  The original SwiftUI prototype, kept as a reference
 ```
@@ -73,7 +73,7 @@ The server is the referee: every phone sends actions, the lobby's Durable Object
 
 **Moving the game along:** only the host moves between phases, and never abruptly. A host request shows everyone a 3-second "moving to…" banner, which the host can cancel, before the server lands it. While writing and judging, players tap **I'm done**; the host sees how many are done and is asked to confirm before moving on early. Players whose phones drop off are marked away and don't hold anyone up. A half-written quest is saved if the phase changes, and a photo snapped before the buzzer still counts if its upload finishes just after.
 
-**Scoring:** harder quests are worth more. Each quest is rated as it's written, from 1 to 5 on time (how long it takes), nerve (how awkward or embarrassing it is) and effort (travel, props, physical work); the average becomes 1–5 points. Ratings come from OpenAI when the server has a key (`server/src/ratings.ts`), otherwise from an offline keyword estimate. Authors see their quest's rating while writing; in review the host sees every rating with its reason and can overrule it with − / +, and the rater never overwrites the host's call. A verified proof earns its quest's points. Turn off **Harder = more points** in game settings to make every quest worth 1.
+**Scoring:** harder quests are worth more. Each quest is rated as it's written, from 1 to 5 on time (how long it takes), nerve (how awkward or embarrassing it is) and effort (travel, props, physical work); the average becomes 1–5 points. Ratings come from Workers AI (`server/src/ratings.ts`), otherwise from an offline keyword estimate. Authors see their quest's rating while writing; in review the host sees every rating with its reason and can overrule it with − / +, and the rater never overwrites the host's call. A verified proof earns its quest's points. Turn off **Harder = more points** in game settings to make every quest worth 1.
 
 ## Develop locally
 
@@ -91,7 +91,7 @@ Run Expo from `app/` (that's what `npm run app` does). Running `npx expo start` 
 
 The app finds the server on the same machine that serves the JS bundle, so simulators, emulators and real phones on the same Wi-Fi all just work. To point it elsewhere, set `EXPO_PUBLIC_SERVER_URL`.
 
-**AI quests:** copy `server/.env.example` to `server/.env` and add an OpenAI API key (`OPENAI_API_KEY`). Optionally set `OPENAI_MODEL` (default `gpt-5.4-mini`). Without a key, a built-in offline deck fills in. The key lives only on the server.
+**AI quests:** written and rated by Cloudflare Workers AI (`@cf/meta/llama-3.3-70b-instruct-fp8-fast`, set in `server/src/ai.ts`) through the `AI` binding in `wrangler.jsonc`. It has a free daily allowance and needs no API key. If it fails, a built-in offline deck fills in.
 
 **Joining:** the host's lobby screen shows a QR code and a four-letter code. Friends tap **Join a lobby** and scan it, or type the letters — from the app or a browser.
 
@@ -130,7 +130,7 @@ cd server && npx wrangler login && cd ..    # once
 npm run deploy                              # builds the web app, deploys with DEV_TOOLS off
 ```
 
-It prints your permanent address, `https://side-quests.<your-subdomain>.workers.dev`. Lobbies and their photos live in Durable Object storage (free tier) and are deleted after 24 quiet hours. Nothing else to set up. For AI-written quests: `cd server && npx wrangler secret put OPENAI_API_KEY`.
+It prints your permanent address, `https://side-quests.<your-subdomain>.workers.dev`. Lobbies and their photos live in Durable Object storage (free tier) and are deleted after 24 quiet hours. Nothing else to set up. AI-written quests work out of the box through the Workers AI binding.
 
 **App:** see [docs/run-on-a-phone.md](docs/run-on-a-phone.md) for installable Android and iPhone builds (EAS), TestFlight, and store release.
 
